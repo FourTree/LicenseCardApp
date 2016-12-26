@@ -2394,9 +2394,9 @@ public class PBOC extends Applet implements AppletEvent {
 				(short) vrsaExponent.length);
 		vpubkey.setModulus(vrsaModulus, (short) 0x0000,
 				(short) vrsaModulus.length);
-		// signaturedata = JCSystem.makeTransientByteArray(SIGNATURE_DATA_LEN,
-		// JCSystem.CLEAR_ON_RESET);
-		signaturedata = new byte[SIGNATURE_DATA_LEN];// 测试用
+		 signaturedata = JCSystem.makeTransientByteArray(SIGNATURE_DATA_LEN,
+		 JCSystem.CLEAR_ON_RESET);
+//		signaturedata = new byte[SIGNATURE_DATA_LEN];// 测试用
 	}
 
 	/**
