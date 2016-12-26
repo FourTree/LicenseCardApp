@@ -28,8 +28,6 @@ public class LicenseCardApp extends Applet {
 
 	Cipher cipherEncPkcs;
 	Cipher cipherDecPkcs;
-	MessageDigest mSHA;
-	byte[] SHADATA;
 	private byte[] counter;
 	final static short counterlength = 0x0004;
 	final static byte TAG_COUNTER_in_C9 = (byte)0x85;
@@ -52,9 +50,6 @@ public class LicenseCardApp extends Applet {
 		cipherEncPkcs = Cipher.getInstance(Cipher.ALG_RSA_PKCS1, false);
 		cipherDecPkcs = Cipher.getInstance(Cipher.ALG_RSA_PKCS1, false);
 
-		mSHA = MessageDigest.getInstance(MessageDigest.ALG_SHA, false);// 建立hash对象
-		SHADATA = JCSystem.makeTransientByteArray(mSHA.getLength(),
-				JCSystem.CLEAR_ON_RESET);
 		appstate = APPSTATE_INIT;
 		GenerateEmptyRSAKeyPair(keyLength);
 	}
@@ -163,11 +158,8 @@ public class LicenseCardApp extends Applet {
 		switch (buf[ISO7816.OFFSET_INS]) {
 		case (byte) 0xA0:// 私钥加密
 			cipherEncPkcs.init(mpricrtkey, Cipher.MODE_ENCRYPT);
-			mSHA.doFinal(buf, ISO7816.OFFSET_CDATA,
-					(short) (0x00FF & buf[ISO7816.OFFSET_LC]), SHADATA,
-					(short) 0);
-			rlen = cipherEncPkcs.doFinal(SHADATA, (short) 0,
-					(short) SHADATA.length, buf, (short) 0);
+			rlen = cipherEncPkcs.doFinal(buf, ISO7816.OFFSET_CDATA,
+					(short) buf[ISO7816.OFFSET_LC], buf, (short) 0);
 			apdu.setOutgoingAndSend((short) 0, rlen);
 			break;
 
