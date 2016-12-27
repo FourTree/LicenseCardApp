@@ -22,6 +22,8 @@ import javacardx.crypto.Cipher;
 
 public class LicenseCardApp extends Applet {
 
+	static private LicenseCardApp mApp = null;
+
 	private RSAPrivateCrtKey mpricrtkey;
 	private KeyPair keypair;
 	static private short keyLength = (short) 0x0400;// 1024
@@ -30,7 +32,7 @@ public class LicenseCardApp extends Applet {
 	Cipher cipherDecPkcs;
 	private byte[] counter;
 	final static short counterlength = 0x0004;
-	final static byte TAG_COUNTER_in_C9 = (byte)0x85;
+	final static short TAG_COUNTER_in_C9 = (short) 0x85;
 
 	SecureChannel secureChannel;
 	boolean extAuthflag;
@@ -44,8 +46,14 @@ public class LicenseCardApp extends Applet {
 	final static private byte APPSTATE_SETCRT = (byte) 0x10;
 	final static private byte APPSTATE_PERSONALIZED = (byte) 0x1F;
 
-	public LicenseCardApp() {
+	/**
+	 * fail result for find operation.
+	 */
+	final static private short TAG_NOT_FOUND = -1;
+
+	public LicenseCardApp(byte[] bArray, short soffset) {
 		counter = new byte[counterlength];// 需要预制使用次数
+		Util.arrayCopy(bArray, soffset,this.counter, (short) 0, counterlength);
 
 		cipherEncPkcs = Cipher.getInstance(Cipher.ALG_RSA_PKCS1, false);
 		cipherDecPkcs = Cipher.getInstance(Cipher.ALG_RSA_PKCS1, false);
@@ -56,23 +64,29 @@ public class LicenseCardApp extends Applet {
 
 	/**
 	 * 
-	 * @param bArray Len+instanceAID+len+privillege+len+C9parameter;
+	 * @param bArray
+	 *            Len+instanceAID+len+privillege+len+C9parameter;
 	 * @param bOffset
 	 * @param bLength
-	 * e.g. install -i a0800000008182838485 -d -q C9#(850400000020) a08000000080 a08000000081
+	 *            e.g. install -i a0800000008182838485 -d -q C9#(850400000020)
+	 *            a08000000080 a08000000081
 	 */
 	public static void install(byte[] bArray, short bOffset, byte bLength) {
 		// GP-compliant JavaCard applet registration
-		LicenseCardApp mApp = new LicenseCardApp();
+		if (mApp != null) {
+			ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+			return;
+		}
 		/* 获取INSTALL指令C9数据 */
 		short offset = (short) (bOffset + bArray[bOffset]
-				+ bArray[(short) (bOffset + 1 + bArray[bOffset])] + 3);// 取C9对应的长度的偏移量
-		if (bArray[offset] != TAG_COUNTER_in_C9) {
+				+ bArray[(short) (bOffset + 1 + bArray[bOffset])] + 2);// 取C9对应的长度的偏移量
+		offset = findValueOffByTag(TAG_COUNTER_in_C9, bArray,
+				(short) (offset + 1), (short) bArray[offset]);
+		if (offset < 0) {
 			ISOException.throwIt(ISO7816.SW_DATA_INVALID);
 			return;
 		}
-		offset += 2;
-		Util.arrayCopy(bArray, offset, mApp.counter, (short) 0, counterlength);
+		mApp = new LicenseCardApp(bArray, offset);
 		mApp.register(bArray, (short) (bOffset + 1), bArray[bOffset]);
 	}
 
@@ -119,8 +133,8 @@ public class LicenseCardApp extends Applet {
 				return;
 			}
 			apdu.setIncomingAndReceive();
-			if(!Decrease(counter, (short) 0, counterlength, (byte) 0x01)){
-				ISOException.throwIt((short)0x6301);//没有剩余次数
+			if (!Decrease(counter, (short) 0, counterlength, (byte) 0x01)) {
+				ISOException.throwIt((short) 0x6301);// 没有剩余次数
 				return;
 			}
 		case (byte) 0xA1:// 查看剩余次数
@@ -248,4 +262,50 @@ public class LicenseCardApp extends Applet {
 		} else
 			return false;
 	}
+
+	/**
+	 * Get offset of value by specific tag in BER-TLV list.
+	 * 
+	 * @param tag
+	 *            tag to be find.
+	 * @param tlvList
+	 *            buffer of tlv list.
+	 * @param offset
+	 *            offset of buffer.
+	 * @param length
+	 *            length of buffer.
+	 * @return offset of value, TAG_NOT_FOUND if can't find. * e.g.
+	 *         tag=0x85,list={81010202021122030199850400002000}，then return 12.
+	 */
+	public static short findValueOffByTag(short tag, byte[] tlvList,
+			short offset, short length) {
+		short i = offset;
+		length += offset;
+
+		while (i < length) {
+			// tag
+			short tagTemp = (short) (tlvList[i] & 0x00FF);
+			if ((short) (tagTemp & 0x001F) == 0x001F) {
+				i++;
+				tagTemp <<= 8;
+				tagTemp |= (short) (tlvList[i] & 0x00FF);
+			}
+			i++;
+
+			// length
+			if (tlvList[i] == (byte) 0x81) {
+				i++;
+			}
+			i++;
+
+			// value
+			if (tag == tagTemp) {
+				return i;
+			}
+
+			i += (tlvList[(short) (i - 1)] & 0x00FF);
+		}
+		return TAG_NOT_FOUND;
+	}
+
 }
