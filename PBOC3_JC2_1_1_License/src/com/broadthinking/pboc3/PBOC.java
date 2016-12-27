@@ -2288,8 +2288,8 @@ public class PBOC extends Applet implements AppletEvent {
 			(byte) 0xD3, (byte) 0xA8, (byte) 0x28, (byte) 0xE5, (byte) 0x9D,
 			(byte) 0x5D, (byte) 0x7F };
 
-	private byte[] signaturedata;
-	private static final short SIGNATURE_DATA_LEN = (short) 0x10;
+	private byte[] vMsgDigestLV;// 签名数据摘要
+	final static private short RANDOM_SIGNATURE_DATA_LEN = (short) 0x0010;
 
 	private boolean appVerifyReslut = false;
 
@@ -2394,9 +2394,9 @@ public class PBOC extends Applet implements AppletEvent {
 				(short) vrsaExponent.length);
 		vpubkey.setModulus(vrsaModulus, (short) 0x0000,
 				(short) vrsaModulus.length);
-		 signaturedata = JCSystem.makeTransientByteArray(SIGNATURE_DATA_LEN,
-		 JCSystem.CLEAR_ON_RESET);
-//		signaturedata = new byte[SIGNATURE_DATA_LEN];// 测试用
+		vMsgDigestLV = JCSystem.makeTransientByteArray(
+				(short) (msgDigest.getLength() + 1), JCSystem.CLEAR_ON_RESET);
+		// vMsgDigeset = new byte[(short)(msgDigest.getLength()+1)];// 测试用
 	}
 
 	/**
@@ -4041,17 +4041,16 @@ public class PBOC extends Applet implements AppletEvent {
 	}
 
 	/**
-	 * 取认证数据
+	 * 生成摘要
 	 * 
 	 * @param apdu
 	 */
-	private void onGetSignatureData(APDU apdu) {
+	private void onGetMsgDigest(APDU apdu) {
 		byte[] buf = apdu.getBuffer();
-		random.generateData(signaturedata, (short) 0, SIGNATURE_DATA_LEN);
-		Util.arrayCopy(signaturedata, (short) 0, buf, (short) 0,
-				SIGNATURE_DATA_LEN);
-		msgDigest.doFinal(signaturedata, (short) 0, SIGNATURE_DATA_LEN, buf,
-				(short) 0);
+		random.generateData(buf, (short) 0, RANDOM_SIGNATURE_DATA_LEN);
+		msgDigest.doFinal(buf, (short) 0, RANDOM_SIGNATURE_DATA_LEN, vMsgDigestLV, (short) 1);
+		vMsgDigestLV[0] = msgDigest.getLength();
+		Util.arrayCopy(vMsgDigestLV, (short) 1, buf, (short) 0, (short) msgDigest.getLength());
 		apdu.setOutgoingAndSend((short) 0, (short) msgDigest.getLength());
 	}
 
@@ -4063,6 +4062,10 @@ public class PBOC extends Applet implements AppletEvent {
 	private void onVerifySign(APDU apdu) {
 		short rlen = (short) 0;
 		byte[] buf = apdu.getBuffer();
+		if (vMsgDigestLV[0] != msgDigest.getLength()) {
+			ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+			return;
+		}
 		apdu.setIncomingAndReceive();
 		try {
 			vcipherDecPkcs.init(vpubkey, Cipher.MODE_DECRYPT);
@@ -4070,13 +4073,14 @@ public class PBOC extends Applet implements AppletEvent {
 					(short) (0x00FF & buf[ISO7816.OFFSET_LC]), buf, (short) 0);
 		} catch (Exception e) {
 			ISOException.throwIt((short) 0x6300);
+			return;
 		}
-		if (rlen != (short) msgDigest.getLength())
+		if (rlen != (short) msgDigest.getLength()){
 			ISOException.throwIt((short) 0x6300);
+			return;
+		}
 
-		msgDigest.doFinal(signaturedata, (short) 0, SIGNATURE_DATA_LEN, buf,
-				(short) msgDigest.getLength());
-		if ((short) Util.arrayCompare(buf, (short) 0, buf,
+		if ((short) Util.arrayCompare(vMsgDigestLV, (short) 1, buf,
 				(short) msgDigest.getLength(), (short) msgDigest.getLength()) == (short) 0) {
 			appVerifyReslut = true;
 			ISOException.throwIt(ISO7816.SW_NO_ERROR);
@@ -9746,7 +9750,7 @@ public class PBOC extends Applet implements AppletEvent {
 		if (!appVerifyReslut) {
 			switch (ins) {
 			case CMD_INS_GET_SIGN_DATA:
-				onGetSignatureData(apdu);
+				onGetMsgDigest(apdu);
 				return;
 			case CMD_INS_VERIFY_SIGN:
 				onVerifySign(apdu);
@@ -9754,6 +9758,15 @@ public class PBOC extends Applet implements AppletEvent {
 			case CMD_INS_GPO:
 			case CMD_INS_GENERATE_AC:
 				ISOException.throwIt(ISO7816.SW_FUNC_NOT_SUPPORTED);
+				return;
+			default:
+				break;
+			}
+		}else{
+			switch (ins) {
+			case CMD_INS_GET_SIGN_DATA:
+			case CMD_INS_VERIFY_SIGN:
+				ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
 				return;
 			default:
 				break;
