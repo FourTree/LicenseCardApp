@@ -44,7 +44,12 @@ public class LicenseCardApp extends Applet {
 	final static private byte APPSTATE_SETDP = (byte) 0x04;
 	final static private byte APPSTATE_SETDQ = (byte) 0x08;
 	final static private byte APPSTATE_SETCRT = (byte) 0x10;
-	final static private byte APPSTATE_PERSONALIZED = (byte) 0x1F;
+	final static private byte APPSTATE_PERSONALIZED = APPSTATE_SETP | APPSTATE_SETQ | APPSTATE_SETDP | APPSTATE_SETDQ | APPSTATE_SETCRT;//个人化状态
+	final static private byte APPSTATE_LOCKED = (byte) 0xFF ;//锁定
+
+	private byte ext_Counter;//外部认证计数器
+	final static private byte ext_MAX_Counter = (byte) 0x10;//最大外部认证失败次数
+
 
 	/**
 	 * fail result for find operation.
@@ -53,6 +58,7 @@ public class LicenseCardApp extends Applet {
 
 	public LicenseCardApp(byte[] bArray, short soffset) {
 		counter = new byte[counterlength];// 需要预制使用次数
+		ext_Counter = (byte)0;//外部认证次数复位
 		Util.arrayCopy(bArray, soffset,this.counter, (short) 0, counterlength);
 
 		cipherEncPkcs = Cipher.getInstance(Cipher.ALG_RSA_PKCS1, false);
@@ -104,6 +110,12 @@ public class LicenseCardApp extends Applet {
 		case (byte) 0x50:
 			apdu.setIncomingAndReceive();
 			extAuthflag = false;
+			ext_Counter ++;
+			if(ext_Counter > ext_MAX_Counter){
+				appstate = APPSTATE_LOCKED;
+				ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+				return;
+			}
 			if ((byte) 0x80 == buf[ISO7816.OFFSET_CLA]) {
 				apdu.setOutgoingAndSend(ISO7816.OFFSET_CDATA,
 						secureChannel.processSecurity(apdu));
@@ -145,7 +157,7 @@ public class LicenseCardApp extends Applet {
 		case (byte) 0xB3://
 		case (byte) 0xB4://
 		case (byte) 0xB5://
-			if (appstate == APPSTATE_PERSONALIZED) {
+			if ((appstate == APPSTATE_PERSONALIZED) || (appstate == APPSTATE_LOCKED)) {
 				ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
 				return;
 			}
